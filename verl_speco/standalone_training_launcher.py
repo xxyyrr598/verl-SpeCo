@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Single-entry launcher for Producer -> TransferQueue -> draft training.
+"""Single-entry launcher for standalone Producer/Consumer draft training.
 
 The example script keeps the ordinary standalone-training interface. This
-module owns the internal Ray/TQ identity and the owner, Producer and Consumer
+module owns the internal transport identity and the owner, Producer and Consumer
 process lifecycle so transport-specific overrides do not leak into examples.
 """
 
@@ -41,6 +41,7 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from omegaconf import OmegaConf
+from verl_speco.config import normalize_standalone_overrides
 
 from verl_speco.draft_train_launcher import (
     normalize_training_args,
@@ -67,11 +68,11 @@ _TRAIN_FILES_KEY = "data.train_files"
 _TOKENIZER_PATH_KEY = (
     "actor_rollout_ref.rollout.drafter.training.feature_store.tokenizer_path"
 )
-_PRODUCER_TARGET_LAYER_IDS_KEY = "speco.standalone_tq_producer.target_layer_ids"
+_PRODUCER_TARGET_LAYER_IDS_KEY = "speco.standalone_producer.target_layer_ids"
 _PRODUCER_VLLM_AUX_LAYER_IDS_KEY = (
-    "speco.standalone_tq_producer.vllm_aux_hidden_state_layer_ids"
+    "speco.standalone_producer.vllm_aux_hidden_state_layer_ids"
 )
-_PRODUCER_HIDDEN_DTYPE_KEY = "speco.standalone_tq_producer.hidden_dtype"
+_PRODUCER_HIDDEN_DTYPE_KEY = "speco.standalone_producer.hidden_dtype"
 _DSPARK_L1_LOSS_ALPHA_KEY = (
     "actor_rollout_ref.rollout.drafter.training.dspark_l1_loss_alpha"
 )
@@ -113,7 +114,7 @@ _NNODES_KEYS = (
 
 _TQ_PREFIX = "actor_rollout_ref.rollout.drafter.training.transfer_queue"
 _FEATURE_STORE_PREFIX = "actor_rollout_ref.rollout.drafter.training.feature_store"
-_PRODUCER_PREFIX = "speco.standalone_tq_producer"
+_PRODUCER_PREFIX = "speco.standalone_producer"
 _RUNTIME_BACKEND_KEY = "speco.draft_training.runtime_backend"
 _DATA_TRANSPORT_KEY = "speco.draft_training.data_transport"
 _DATA_SOURCE_KEY = "speco.draft_training.data_source"
@@ -286,10 +287,10 @@ def _single_train_file(value: str | None) -> str:
     if text.startswith("[") and text.endswith("]"):
         items = [_strip_quotes(item) for item in text[1:-1].split(",") if item.strip()]
         if len(items) != 1:
-            raise ValueError("Standalone TQ Producer requires exactly one train file")
+            raise ValueError("Standalone Producer requires exactly one train file")
         text = items[0]
     if not text:
-        raise ValueError("Standalone TQ Producer train file must not be empty")
+        raise ValueError("Standalone Producer train file must not be empty")
     return text
 
 
@@ -509,8 +510,9 @@ def resolve_pipeline_config(
     *,
     environ: Mapping[str, str] | None = None,
 ) -> PipelineConfig:
-    """Derive all Producer/TQ settings from ordinary training arguments."""
+    """Derive Producer and transport settings from ordinary training arguments."""
 
+    training_args = normalize_standalone_overrides(training_args)
     env = os.environ if environ is None else environ
     model_path = _required_override(training_args, _MODEL_PATH_KEY)
     input_path = _single_train_file(_find_override(training_args, _TRAIN_FILES_KEY))
@@ -909,6 +911,7 @@ def build_pipeline_commands(
     the same mapping to ``run_ray_pipeline`` so backend selection and master
     validation read one source.
     """
+    training_args = normalize_standalone_overrides(training_args)
     backend_env = os.environ if env is None else env
     target_identity = _stable_path_identity("target", config.model_path)
     tokenizer_identity = _stable_path_identity("tokenizer", config.tokenizer_path)
@@ -1091,22 +1094,22 @@ def build_pipeline_commands(
         ),
         *tq_overrides,
         *producer_tuning_overrides,
-        f"speco.standalone_tq_producer.input_path={config.input_path}",
-        "speco.standalone_tq_producer.resume_checkpoint_path="
+        f"speco.standalone_producer.input_path={config.input_path}",
+        "speco.standalone_producer.resume_checkpoint_path="
         + (drafter_path if resume_metadata is not None else "null"),
-        f"speco.standalone_tq_producer.tokenizer_path={config.tokenizer_path}",
-        "speco.standalone_tq_producer.tokenizer_fingerprint=" + tokenizer_identity,
-        "speco.standalone_tq_producer.target_model_id="
+        f"speco.standalone_producer.tokenizer_path={config.tokenizer_path}",
+        "speco.standalone_producer.tokenizer_fingerprint=" + tokenizer_identity,
+        "speco.standalone_producer.target_model_id="
         + json.dumps(config.model_path, ensure_ascii=False),
-        "speco.standalone_tq_producer.target_model_revision=" + target_identity,
-        "speco.standalone_tq_producer.target_layer_ids="
+        "speco.standalone_producer.target_model_revision=" + target_identity,
+        "speco.standalone_producer.target_layer_ids="
         + _hydra_list(config.target_layer_ids),
-        "speco.standalone_tq_producer.vllm_aux_hidden_state_layer_ids="
+        "speco.standalone_producer.vllm_aux_hidden_state_layer_ids="
         + _hydra_list(config.vllm_aux_hidden_state_layer_ids),
-        "speco.standalone_tq_producer.vllm_endpoints="
+        "speco.standalone_producer.vllm_endpoints="
         + _hydra_list(config.vllm_endpoints),
-        f"speco.standalone_tq_producer.vllm_model={config.model_path}",
-        "speco.standalone_tq_producer.max_samples="
+        f"speco.standalone_producer.vllm_model={config.model_path}",
+        "speco.standalone_producer.max_samples="
         + str(
             _producer_max_samples(
                 training_args,
@@ -1379,7 +1382,7 @@ def _preflight_input_file(input_path: str) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Launch standalone DSpark training through Producer/TQ/Consumer."
+        description="Launch standalone draft training with Ray reference or TQ transport."
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--python-executable", default=sys.executable)
@@ -1458,7 +1461,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         finally:
             ray_session.close()
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
-        logger.error("Standalone TQ training failed: %s", exc)
+        logger.error("Standalone training failed: %s", exc)
         return 2
 
 

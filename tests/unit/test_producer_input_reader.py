@@ -25,6 +25,98 @@ pytest.importorskip("torch")
 from verl_speco.producer import input_reader
 
 
+@pytest.mark.parametrize("prompt_length,minimum,kept", [
+    (6, 3, True), (7, 3, True), (8, 3, False), (10, 1, False), (12, 1, False),
+])
+def test_optional_right_truncation_checks_remaining_supervision(prompt_length, minimum, kept):
+    kwargs = dict(
+        sequence_no=0, sample_id="overlength", prompt_length=prompt_length,
+        full_ids=list(range(15)), source_metadata={},
+        config={"on_truncated_supervision": "truncate", "max_sequence_length": 10,
+                "max_feature_length": 0, "min_supervised_tokens": minimum},
+    )
+    if not kept:
+        with pytest.raises(input_reader.SampleFilteredError):
+            input_reader._build_tokenized_request(**kwargs)
+        return
+    request = input_reader._build_tokenized_request(**kwargs)
+    assert request.input_ids.tolist() == list(range(10))
+    assert request.loss_mask.tolist() == [0] * prompt_length + [1] * (10 - prompt_length)
+    assert request.vllm_prompt_token_ids == tuple(range(10))
+    assert request.position_ids.tolist() == list(range(10))
+
+
+def test_right_truncation_keeps_generated_hidden_and_label_alignment():
+    request = input_reader._build_tokenized_request(
+        sequence_no=0, sample_id="generated", prompt_length=5,
+        full_ids=list(range(15)), source_metadata={},
+        vllm_prompt_token_ids=list(range(14)), feature_end_limit=14,
+        config={"on_truncated_supervision": "truncate", "max_sequence_length": 10,
+                "max_feature_length": 0, "min_supervised_tokens": 4,
+                "preserve_prompt_context": True},
+    )
+    assert request.input_ids.tolist() == list(range(10))
+    assert request.vllm_prompt_token_ids == tuple(range(9))
+    assert request.feature_positions.tolist() == list(range(9))
+    assert request.loss_mask[request.feature_positions].sum().item() == 4
+
+
+def test_right_truncation_checks_supervision_after_feature_budget():
+    with pytest.raises(input_reader.SampleFilteredError, match="supervised"):
+        input_reader._build_tokenized_request(
+            sequence_no=0, sample_id="feature-cap", prompt_length=5,
+            full_ids=list(range(15)), source_metadata={},
+            config={"on_truncated_supervision": "truncate", "max_sequence_length": 10,
+                    "preserve_prompt_context": True, "max_feature_length": 2,
+                    "min_supervised_tokens": 3},
+        )
+
+
+def test_right_truncation_never_keeps_zero_supervision():
+    with pytest.raises(input_reader.SampleFilteredError, match="supervised"):
+        input_reader._build_tokenized_request(
+            sequence_no=0, sample_id="zero-supervision", prompt_length=10,
+            full_ids=list(range(10)), source_metadata={},
+            config={"on_truncated_supervision": "truncate", "max_sequence_length": 10,
+                    "min_supervised_tokens": 0, "min_response_feature_rows": 0},
+        )
+
+
+@pytest.mark.parametrize("capacity", [0, 1, 3, 4])
+def test_generation_filters_insufficient_supervision_before_request(capacity):
+    record = input_reader.InputRecord(
+        sequence_no=0, sample_id="prompt-only", prompt="prompt", response=None,
+        source_metadata={},
+    )
+    tokenizer = lambda *args, **kwargs: list(range(10 - capacity))
+    config = {"on_truncated_supervision": "truncate", "max_sequence_length": 10,
+              "generation_max_tokens": 20, "min_supervised_tokens": 3}
+    if capacity < 4:
+        with pytest.raises(input_reader.SampleFilteredError, match="capacity"):
+            input_reader.prepare_generation_request(record, tokenizer, config)
+    else:
+        assert input_reader.prepare_generation_request(record, tokenizer, config).max_tokens == 4
+
+
+def test_render_boundary_requests_explicit_right_truncation():
+    calls = []
+
+    def render(messages, *, add_generation_prompt, max_length, truncation_side):
+        calls.append(truncation_side)
+        return list(range(5 if add_generation_prompt else 10))
+
+    record = input_reader.InputRecord(
+        sequence_no=0, sample_id="render", prompt=({"role": "user", "content": "x"},),
+        response="answer", source_metadata={},
+    )
+    request = input_reader.tokenize_record_with_render_boundary(
+        record, None, {"on_truncated_supervision": "truncate", "max_sequence_length": 10,
+                       "max_feature_length": 0}, render,
+    )
+    assert calls == ["right", "right"]
+    assert request.loss_mask.sum().item() == 5
+
+
 @pytest.mark.parametrize("response_budget", [0, 2, 3])
 def test_prompt_context_does_not_consume_response_feature_budget(response_budget):
     request = input_reader._build_tokenized_request(

@@ -16,7 +16,7 @@ from verl_speco.standalone_ray_runtime import (
     StandaloneRayTrainer,
     _configure_driver_logging,
 )
-from verl_speco.standalone_tq_training_launcher import (
+from verl_speco.standalone_training_launcher import (
     PipelineCommands,
     _validate_runtime_backend_topology,
 )
@@ -59,7 +59,7 @@ def test_reference_events_retry_same_batch_id_and_use_full_batch():
 
 def test_file_actor_sends_completion_after_all_metadata_and_metrics(monkeypatch):
     from queue import Queue
-    import verl_speco.standalone_tq_producer as producer
+    import verl_speco.standalone_producer as producer
 
     config = _runtime_config()
     training = config.actor_rollout_ref.rollout.drafter.training
@@ -129,7 +129,7 @@ def test_producer_actor_reuses_existing_producer_and_supports_stop(monkeypatch) 
 
     monkeypatch.setitem(
         sys.modules,
-        "verl_speco.standalone_tq_producer",
+        "verl_speco.standalone_producer",
         SimpleNamespace(run_producer=fake_run_producer),
     )
     actor = StandaloneProducerActor({"producer": True})
@@ -164,7 +164,7 @@ def test_producer_actor_coalesces_publish_notifications_as_cumulative_total(
 
     monkeypatch.setitem(
         sys.modules,
-        "verl_speco.standalone_tq_producer",
+        "verl_speco.standalone_producer",
         SimpleNamespace(run_producer=fake_run_producer),
     )
     events = _Events()
@@ -193,7 +193,7 @@ def test_producer_actor_delivers_partial_metrics_when_stopped(monkeypatch):
         finally:
             await kwargs["on_metrics"](1, {"producer/sample_total_time": 2.0})
 
-    monkeypatch.setitem(sys.modules, "verl_speco.standalone_tq_producer",
+    monkeypatch.setitem(sys.modules, "verl_speco.standalone_producer",
                         SimpleNamespace(run_producer=fake_run_producer))
     actor = StandaloneProducerActor({"producer": True}, SimpleNamespace(put=events.append))
 
@@ -658,7 +658,7 @@ def _runtime_config():
         _CONFIG = SimpleNamespace(
             speco=SimpleNamespace(
                 draft_training=draft_training,
-                standalone_tq_producer=SimpleNamespace(max_pending_samples=20),
+                standalone_producer=SimpleNamespace(max_pending_samples=20),
             ),
             actor_rollout_ref=SimpleNamespace(
                 rollout=SimpleNamespace(

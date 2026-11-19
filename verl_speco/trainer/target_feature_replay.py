@@ -64,7 +64,7 @@ class FeatureContract:
     tokenizer_fingerprint: str
     use_logits: bool = False
     target_config_fingerprint: str | None = None
-    source: str = "standalone_tq_producer"
+    source: str = "standalone_producer"
     require_full_alignment: bool = False
     target_num_hidden_layers: int | None = None
     # Standalone-only vLLM output_hidden_states indices. None preserves the

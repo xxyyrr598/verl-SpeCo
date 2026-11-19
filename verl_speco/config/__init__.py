@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 
@@ -35,4 +36,25 @@ def prefetch_depth(config: Any) -> int:
     return value
 
 
-__all__ = ["config_int", "prefetch_depth"]
+def normalize_standalone_overrides(overrides: Sequence[str]) -> list[str]:
+    """Preserve override order, values and Hydra operators for both spellings."""
+    aliases = {
+        "speco.standalone_tq_producer.": "speco.standalone_producer.",
+        "actor_rollout_ref.rollout.drafter.training.consumer.": (
+            "actor_rollout_ref.rollout.drafter.training.transfer_queue."
+        ),
+    }
+    normalized = []
+    for override in overrides:
+        key, separator, value = override.partition("=")
+        bare_key = key.lstrip("+~")
+        operator = key[: len(key) - len(bare_key)]
+        for public, internal in aliases.items():
+            if bare_key.startswith(public):
+                key = operator + internal + bare_key[len(public) :]
+                break
+        normalized.append(key + separator + value)
+    return normalized
+
+
+__all__ = ["config_int", "prefetch_depth", "normalize_standalone_overrides"]

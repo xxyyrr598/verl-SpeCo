@@ -1,7 +1,7 @@
 # Copyright 2026 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-"""Ray execution backend for standalone Producer/TQ/Consumer training.
+"""Ray execution backend for standalone Producer/Consumer training.
 
 This module deliberately owns execution only. Scheduling and backpressure are
 introduced in later phases; the training worker calls the existing standalone
@@ -24,7 +24,7 @@ from typing import Any
 
 from verl_speco.config import prefetch_depth
 from verl_speco.producer.metrics import current_ray_node_id
-from verl_speco.standalone_tq_training_launcher import (
+from verl_speco.standalone_training_launcher import (
     _VLLM_HIDDEN_STATES_DIR,
     PipelineCommands,
     _stop_process,
@@ -306,7 +306,7 @@ class StandaloneProducerActor:
             )
 
     async def _run_producer(self) -> Any:
-        from verl_speco.standalone_tq_producer import run_producer
+        from verl_speco.standalone_producer import run_producer
 
         if self._events is not None:
             self._notification_task = asyncio.create_task(
@@ -505,7 +505,7 @@ class StandaloneRayTrainer:
             * int(self.consumer_config.speco.draft_training.nnodes)
         )
         scheduler_cfg = self.consumer_config.speco.draft_training.get("scheduler") or {}
-        producer_cfg = self.producer_config.speco.standalone_tq_producer
+        producer_cfg = self.producer_config.speco.standalone_producer
         max_pending = int(producer_cfg.max_pending_samples)
         default_low = max(global_batch, max_pending // 2)
         low = int(scheduler_cfg.get("low_watermark_samples", 0) or default_low)

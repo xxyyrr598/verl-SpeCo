@@ -119,7 +119,7 @@ def test_launcher_rejects_standalone_multinode() -> None:
 
 @pytest.mark.parametrize("store_type", ["tq", "ray_reference", "token_replay", "jsonl_token_replay", "jsonl"])
 def test_direct_launcher_rejects_streaming_and_token_replay(store_type):
-    with pytest.raises(ValueError, match="standalone_tq_training_launcher|vllm_hidden_states_generate"):
+    with pytest.raises(ValueError, match="standalone_training_launcher|vllm_hidden_states_generate"):
         validate_feature_store_launch_config([
             f"actor_rollout_ref.rollout.drafter.training.feature_store.type={store_type}",
         ])

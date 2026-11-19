@@ -321,7 +321,7 @@ async def _hidden_components(config, stack):
         delete_temporary_result,
         load_hidden_state_result,
     )
-    from verl_speco.standalone_tq_training_launcher import (
+    from verl_speco.standalone_training_launcher import (
         _saved_hidden_tokenizer_fingerprint,
     )
 

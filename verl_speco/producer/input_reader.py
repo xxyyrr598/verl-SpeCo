@@ -468,6 +468,7 @@ def build_render_fn(endpoint: str, *, timeout: float = 10.0) -> Any:
         add_generation_prompt: bool,
         tools: list[dict] | None = None,
         max_length: int | None = None,
+        truncation_side: str | None = None,
     ) -> list[int]:
         return render_conversation(
             endpoint,
@@ -475,6 +476,7 @@ def build_render_fn(endpoint: str, *, timeout: float = 10.0) -> Any:
             add_generation_prompt=add_generation_prompt,
             tools=tools,
             truncate_prompt_tokens=max_length,
+            truncation_side=truncation_side,
             timeout=timeout,
         )
 
@@ -506,11 +508,20 @@ def tokenize_record_with_render_boundary(
 
     messages = list(record.prompt)
     max_length = int(_config_value(config, "max_sequence_length", 0) or 0) or None
-    prompt_ids = render_fn(messages, add_generation_prompt=True, max_length=max_length)
+    truncate = _config_value(config, "on_truncated_supervision", "keep") == "truncate"
+    render_options = {"truncation_side": "right"} if truncate else {}
+    prompt_ids = render_fn(
+        messages, add_generation_prompt=True, max_length=max_length, **render_options
+    )
+    if truncate and max_length and len(prompt_ids) >= max_length:
+        raise SampleFilteredError(
+            f"Producer sample {record.sample_id!r} prompt fills max_sequence_length={max_length}"
+        )
     full_ids = render_fn(
         [*messages, {"role": "assistant", "content": record.response}],
         add_generation_prompt=False,
         max_length=max_length,
+        **render_options,
     )
     history_ids = None
     if full_ids[: len(prompt_ids)] != prompt_ids:
@@ -519,10 +530,17 @@ def tokenize_record_with_render_boundary(
         # third round-trip when the prompt render already extends into the full
         # one.
         history_ids = render_fn(
-            messages, add_generation_prompt=False, max_length=max_length
+            messages,
+            add_generation_prompt=False,
+            max_length=max_length,
+            **render_options,
         )
     boundary = boundary_from_renders(prompt_ids, full_ids, history_ids)
     if len(full_ids) <= boundary:
+        if truncate:
+            raise SampleFilteredError(
+                f"Producer sample {record.sample_id!r} has no supervised tokens after rendering"
+            )
         raise ValueError(
             f"Producer sample {record.sample_id!r} produced no response tokens"
         )
@@ -624,6 +642,18 @@ def prepare_generation_request(
         raise ValueError("generation_max_tokens must be positive")
     if max_sequence_length > 0:
         max_tokens = min(max_tokens, max_sequence_length - len(prompt_ids))
+    if _config_value(config, "on_truncated_supervision", "keep") == "truncate":
+        minimum = max(
+            int(_config_value(config, "min_supervised_tokens", 1) or 0),
+            int(_config_value(config, "min_response_feature_rows", 1)),
+            1,
+        )
+        # The final generated token is a label without a corresponding hidden row.
+        if max_tokens - 1 < minimum:
+            raise SampleFilteredError(
+                f"Producer sample {record.sample_id!r} has generation capacity "
+                f"{max_tokens}, insufficient for {minimum} supervised feature rows"
+            )
     if max_tokens <= 0:
         raise ValueError(
             f"Producer sample {record.sample_id!r} prompt has {len(prompt_ids)} tokens "
@@ -785,6 +815,33 @@ def _build_tokenized_request(
     vllm_prompt_token_ids: list[int] | None = None,
     feature_end_limit: int | None = None,
 ) -> TokenizedRequest:
+    truncate = _config_value(config, "on_truncated_supervision", "keep") == "truncate"
+    max_sequence_length = int(_config_value(config, "max_sequence_length", 0) or 0)
+    if truncate and max_sequence_length > 0 and len(full_ids) > max_sequence_length:
+        if prompt_length >= max_sequence_length:
+            raise SampleFilteredError(
+                f"Producer sample {sample_id!r} prompt fills "
+                f"max_sequence_length={max_sequence_length}; no supervision remains"
+            )
+        original_length = len(full_ids)
+        has_next_token_label = (
+            vllm_prompt_token_ids is not None
+            and len(vllm_prompt_token_ids) == original_length - 1
+        )
+        full_ids = full_ids[:max_sequence_length]
+        if vllm_prompt_token_ids is not None:
+            hidden_end = max_sequence_length - int(has_next_token_label)
+            vllm_prompt_token_ids = vllm_prompt_token_ids[:hidden_end]
+            feature_end_limit = min(
+                feature_end_limit if feature_end_limit is not None else hidden_end,
+                hidden_end,
+            )
+        logger.warning(
+            "Producer sample %r right-truncated from %s to %s tokens",
+            sample_id,
+            original_length,
+            max_sequence_length,
+        )
     input_ids = torch.tensor(full_ids, dtype=torch.int64)
     if int(input_ids.numel()) <= 0:
         raise ValueError(f"Producer sample {sample_id!r} produced no input tokens")
@@ -833,6 +890,8 @@ def _build_tokenized_request(
     supervised_tokens = int(window_mask.sum().item())
     min_supervised = int(_config_value(config, "min_supervised_tokens", 1) or 0)
     min_supervised = max(min_supervised, min_response_rows)
+    if truncate:
+        min_supervised = max(min_supervised, 1)
     if supervised_tokens < min_supervised:
         raise SampleFilteredError(
             f"Producer sample {sample_id!r} has {supervised_tokens} supervised "
@@ -843,9 +902,9 @@ def _build_tokenized_request(
         on_truncated = str(
             _config_value(config, "on_truncated_supervision", "keep") or "keep"
         )
-        if on_truncated not in {"keep", "drop"}:
+        if on_truncated not in {"keep", "drop", "truncate"}:
             raise ValueError(
-                "on_truncated_supervision must be 'keep' or 'drop', got "
+                "on_truncated_supervision must be 'keep', 'drop' or 'truncate', got "
                 f"{on_truncated!r}"
             )
         message = (
@@ -855,14 +914,13 @@ def _build_tokenized_request(
         )
         if on_truncated == "drop":
             raise SampleFilteredError(message)
-        logger.warning("%s; keeping it (on_truncated_supervision=keep)", message)
+        logger.warning("%s; keeping sufficient supervision", message)
 
     request_prompt_token_ids = (
         list(vllm_prompt_token_ids)
         if vllm_prompt_token_ids is not None
         else full_ids[:feature_end]
     )
-    max_sequence_length = int(_config_value(config, "max_sequence_length", 0) or 0)
     if max_sequence_length > 0 and len(request_prompt_token_ids) > max_sequence_length:
         # A sample whose vLLM prefill would exceed the configured cap can never
         # be served; treat it as filtered data (skipped upstream) rather than a

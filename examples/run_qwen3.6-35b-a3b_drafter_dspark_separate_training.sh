@@ -20,7 +20,7 @@ repo_root=$(cd -- "${script_dir}/.." && pwd)
 cd "${repo_root}"
 
 # Standalone DSpark draft-model training for Qwen3.6-35B-A3B (MoE, 40 layers)
-# using the TransferQueue data path. Best-measured card split (uses all 8 cards):
+# using the Ray reference data path by default. Best-measured card split (uses all 8 cards):
 # the target runs as two DP replicas (DP=2 x TP=2) on cards 0-3; the drafter
 # trains on cards 4-7.
 #
@@ -334,7 +334,7 @@ fi
 # Both streaming transports use the Ray Producer and Consumer.
 DATA_TRANSPORT=${DATA_TRANSPORT:-ray_reference}
 
-PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_tq_training_launcher \
+PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_training_launcher \
     speco.draft_training.num_gpus_per_node=${draft_train_gpus_per_node} \
     speco.draft_training.nnodes=1 \
     speco.draft_training.standalone=True \
@@ -380,7 +380,7 @@ PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_tq_training_launcher
     actor_rollout_ref.rollout.drafter.training.dspark_num_target_layers=${DSPARK_NUM_TARGET_LAYERS} \
     actor_rollout_ref.rollout.drafter.training.dspark_num_hidden_layers=${DSPARK_NUM_HIDDEN_LAYERS} \
     actor_rollout_ref.rollout.drafter.training.dspark_intermediate_size=${DSPARK_INTERMEDIATE_SIZE} \
-    speco.standalone_tq_producer.vllm_aux_hidden_state_layer_ids=${VLLM_AUX_HIDDEN_STATE_LAYER_IDS} \
+    speco.standalone_producer.vllm_aux_hidden_state_layer_ids=${VLLM_AUX_HIDDEN_STATE_LAYER_IDS} \
     actor_rollout_ref.rollout.drafter.training.dspark_sliding_window=${DSPARK_SLIDING_WINDOW} \
     actor_rollout_ref.rollout.drafter.training.packing.enable=${PACKING_ENABLE} \
     actor_rollout_ref.rollout.drafter.training.packing.max_packed_len=${PACKING_MAX_LEN} \
@@ -397,16 +397,16 @@ PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_tq_training_launcher
     actor_rollout_ref.rollout.drafter.training.dspark_debug_log=${DSPARK_DEBUG_LOG} \
     actor_rollout_ref.rollout.drafter.training.dspark_debug_log_first_n=${DSPARK_DEBUG_LOG_FIRST_N} \
     actor_rollout_ref.rollout.drafter.training.dspark_debug_log_interval=${DSPARK_DEBUG_LOG_INTERVAL} \
-    speco.standalone_tq_producer.request_timeout=${VLLM_REQUEST_TIMEOUT} \
-    speco.standalone_tq_producer.max_inflight_requests=${VLLM_MAX_INFLIGHT_REQUESTS} \
-    speco.standalone_tq_producer.per_endpoint_concurrency=${VLLM_PER_ENDPOINT_CONCURRENCY} \
-    speco.standalone_tq_producer.input_queue_size=${PRODUCER_INPUT_QUEUE_SIZE} \
-    speco.standalone_tq_producer.publish_queue_size=${PRODUCER_PUBLISH_QUEUE_SIZE} \
-    speco.standalone_tq_producer.max_pending_samples=${PRODUCER_MAX_PENDING_SAMPLES} \
-    speco.standalone_tq_producer.pending_poll_interval_seconds=${PRODUCER_PENDING_POLL_INTERVAL} \
-    speco.standalone_tq_producer.max_sequence_length=${PRODUCER_MAX_SEQUENCE_LENGTH} \
-    speco.standalone_tq_producer.max_feature_length=${PRODUCER_MAX_FEATURE_LENGTH} \
-    speco.standalone_tq_producer.generation_max_tokens=${PRODUCER_GENERATION_MAX_TOKENS} \
+    speco.standalone_producer.request_timeout=${VLLM_REQUEST_TIMEOUT} \
+    speco.standalone_producer.max_inflight_requests=${VLLM_MAX_INFLIGHT_REQUESTS} \
+    speco.standalone_producer.per_endpoint_concurrency=${VLLM_PER_ENDPOINT_CONCURRENCY} \
+    speco.standalone_producer.input_queue_size=${PRODUCER_INPUT_QUEUE_SIZE} \
+    speco.standalone_producer.publish_queue_size=${PRODUCER_PUBLISH_QUEUE_SIZE} \
+    speco.standalone_producer.max_pending_samples=${PRODUCER_MAX_PENDING_SAMPLES} \
+    speco.standalone_producer.pending_poll_interval_seconds=${PRODUCER_PENDING_POLL_INTERVAL} \
+    speco.standalone_producer.max_sequence_length=${PRODUCER_MAX_SEQUENCE_LENGTH} \
+    speco.standalone_producer.max_feature_length=${PRODUCER_MAX_FEATURE_LENGTH} \
+    speco.standalone_producer.generation_max_tokens=${PRODUCER_GENERATION_MAX_TOKENS} \
     trainer.project_name=${project_name} \
     trainer.experiment_name=${exp_name} \
     trainer.logger='["console","tensorboard"]' \

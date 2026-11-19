@@ -174,7 +174,7 @@ def validate_feature_store_launch_config(overrides: list[str]) -> None:
     )
     if store_type in {"tq", "ray_reference"}:
         raise ValueError(
-            "Streaming training requires verl_speco.standalone_tq_training_launcher; "
+            "Streaming training requires verl_speco.standalone_training_launcher; "
             "the direct torchrun Consumer was removed."
         )
     if store_type in {"token_replay", "jsonl_token_replay", "jsonl"}:

@@ -32,7 +32,7 @@ def validate_standalone_training_source(
     if source in {"tq", "ray_reference"} and scheduled_commands is None:
         raise ValueError(
             "Streaming standalone training requires the Ray Producer/Consumer launcher "
-            "verl_speco.standalone_tq_training_launcher."
+            "verl_speco.standalone_training_launcher."
         )
 
 

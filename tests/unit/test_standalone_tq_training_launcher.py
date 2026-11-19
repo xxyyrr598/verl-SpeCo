@@ -18,12 +18,14 @@ import json
 import threading
 from types import SimpleNamespace
 
+from verl_speco.config import normalize_standalone_overrides
+
 from omegaconf import OmegaConf
 import pytest
 
 pytest.importorskip("torch")
 
-from verl_speco.standalone_tq_training_launcher import (
+from verl_speco.standalone_training_launcher import (
     _hidden_states_store_overrides,
     _preflight_input_file,
     _producer_max_samples,
@@ -89,6 +91,28 @@ def test_pipeline_config_derives_transport_identity_from_training_args() -> None
     assert config.target_layer_ids == (0, 8, 16, 24, 32)
     assert config.vllm_endpoints == ("http://127.0.0.1:8000/v1",)
     assert config.run_id.startswith("dspark-")
+
+
+@pytest.mark.parametrize("transport", ["ray_reference", "tq"])
+def test_public_names_preserve_pipeline_commands(transport):
+    legacy = [
+        *_training_args(),
+        f"speco.draft_training.data_transport={transport}",
+        "speco.standalone_tq_producer.shuffle=true",
+        "actor_rollout_ref.rollout.drafter.training.transfer_queue.consumer_prefetch_batches=12",
+        "actor_rollout_ref.rollout.drafter.training.transfer_queue.consumer_batch_workers=12",
+    ]
+    public = [
+        item.replace("speco.standalone_tq_producer.", "speco.standalone_producer.")
+        .replace("training.transfer_queue.consumer_", "training.consumer.consumer_")
+        for item in legacy
+    ]
+    config = resolve_pipeline_config(public, environ={})
+    assert build_pipeline_commands(
+        config, public, ray_address="ray://unit", env={}
+    ) == build_pipeline_commands(
+        config, legacy, ray_address="ray://unit", env={}
+    )
 
 
 @pytest.mark.parametrize("prefix", ["", "++"])
@@ -321,7 +345,7 @@ def test_pipeline_config_reads_non_dspark_algorithm_from_training_args() -> None
 def test_pipeline_config_validates_vllm_ids_against_training_ids() -> None:
     args = [
         *_training_args(),
-        "speco.standalone_tq_producer.vllm_aux_hidden_state_layer_ids=[2,10,18]",
+        "speco.standalone_producer.vllm_aux_hidden_state_layer_ids=[2,10,18]",
         "actor_rollout_ref.rollout.drafter.training.dspark_target_layer_ids=[1,9,17]",
     ]
 
@@ -406,7 +430,7 @@ def test_pipeline_commands_do_not_request_selected_final_output_twice(tmp_path) 
         item.replace("/models/Qwen3-8B", str(tmp_path)) for item in _training_args()
     ]
     args.append(
-        "speco.standalone_tq_producer."
+        "speco.standalone_producer."
         "vllm_aux_hidden_state_layer_ids=[1,9,17,25,36]"
     )
     config = resolve_pipeline_config(args, environ={})
@@ -541,18 +565,18 @@ def test_pipeline_commands_pass_all_external_vllm_endpoints_to_producer() -> Non
 def test_pipeline_commands_forward_producer_tuning_overrides() -> None:
     args = [
         *_training_args(),
-        "speco.standalone_tq_producer.max_inflight_requests=32",
-        "speco.standalone_tq_producer.per_endpoint_concurrency=8",
-        "speco.standalone_tq_producer.max_feature_length=384",
-        "speco.standalone_tq_producer.max_consecutive_errors=0",
-        "speco.standalone_tq_producer.max_consecutive_feature_drops=5",
-        "speco.standalone_tq_producer.on_error=raise",
-        "speco.standalone_tq_producer.parser_strict_roles=true",
-        "speco.standalone_tq_producer.min_supervised_tokens=3",
-        "speco.standalone_tq_producer.on_truncated_supervision=drop",
-        "speco.standalone_tq_producer.trust_remote_code=true",
-        "speco.standalone_tq_producer.render_boundary.enabled=true",
-        "speco.standalone_tq_producer.render_boundary.timeout=45",
+        "speco.standalone_producer.max_inflight_requests=32",
+        "speco.standalone_producer.per_endpoint_concurrency=8",
+        "speco.standalone_producer.max_feature_length=384",
+        "speco.standalone_producer.max_consecutive_errors=0",
+        "speco.standalone_producer.max_consecutive_feature_drops=5",
+        "speco.standalone_producer.on_error=raise",
+        "speco.standalone_producer.parser_strict_roles=true",
+        "speco.standalone_producer.min_supervised_tokens=3",
+        "speco.standalone_producer.on_truncated_supervision=drop",
+        "speco.standalone_producer.trust_remote_code=true",
+        "speco.standalone_producer.render_boundary.enabled=true",
+        "speco.standalone_producer.render_boundary.timeout=45",
     ]
     config = resolve_pipeline_config(args, environ={})
 
@@ -564,18 +588,18 @@ def test_pipeline_commands_forward_producer_tuning_overrides() -> None:
     )
 
     for override in (
-        "speco.standalone_tq_producer.max_inflight_requests=32",
-        "speco.standalone_tq_producer.per_endpoint_concurrency=8",
-        "speco.standalone_tq_producer.max_feature_length=384",
-        "speco.standalone_tq_producer.max_consecutive_errors=0",
-        "speco.standalone_tq_producer.max_consecutive_feature_drops=5",
-        "speco.standalone_tq_producer.on_error=raise",
-        "speco.standalone_tq_producer.parser_strict_roles=true",
-        "speco.standalone_tq_producer.min_supervised_tokens=3",
-        "speco.standalone_tq_producer.on_truncated_supervision=drop",
-        "speco.standalone_tq_producer.trust_remote_code=true",
-        "speco.standalone_tq_producer.render_boundary.enabled=true",
-        "speco.standalone_tq_producer.render_boundary.timeout=45",
+        "speco.standalone_producer.max_inflight_requests=32",
+        "speco.standalone_producer.per_endpoint_concurrency=8",
+        "speco.standalone_producer.max_feature_length=384",
+        "speco.standalone_producer.max_consecutive_errors=0",
+        "speco.standalone_producer.max_consecutive_feature_drops=5",
+        "speco.standalone_producer.on_error=raise",
+        "speco.standalone_producer.parser_strict_roles=true",
+        "speco.standalone_producer.min_supervised_tokens=3",
+        "speco.standalone_producer.on_truncated_supervision=drop",
+        "speco.standalone_producer.trust_remote_code=true",
+        "speco.standalone_producer.render_boundary.enabled=true",
+        "speco.standalone_producer.render_boundary.timeout=45",
     ):
         assert override in commands.producer_overrides
 
@@ -583,8 +607,8 @@ def test_pipeline_commands_forward_producer_tuning_overrides() -> None:
 def test_pipeline_commands_ignore_launcher_owned_producer_overrides() -> None:
     args = [
         *_training_args(),
-        "speco.standalone_tq_producer.input_path=/evil.jsonl",
-        "speco.standalone_tq_producer.max_samples=999",
+        "speco.standalone_producer.input_path=/evil.jsonl",
+        "speco.standalone_producer.max_samples=999",
     ]
     config = resolve_pipeline_config(args, environ={})
 
@@ -595,15 +619,15 @@ def test_pipeline_commands_ignore_launcher_owned_producer_overrides() -> None:
         python_executable="python",
     )
 
-    assert "speco.standalone_tq_producer.input_path=/data/train.jsonl" in commands.producer_overrides
-    assert "speco.standalone_tq_producer.input_path=/evil.jsonl" not in commands.producer_overrides
-    assert "speco.standalone_tq_producer.max_samples=999" not in commands.producer_overrides
+    assert "speco.standalone_producer.input_path=/data/train.jsonl" in commands.producer_overrides
+    assert "speco.standalone_producer.input_path=/evil.jsonl" not in commands.producer_overrides
+    assert "speco.standalone_producer.max_samples=999" not in commands.producer_overrides
 
 
 def test_pipeline_commands_reject_unknown_producer_override() -> None:
     args = [
         *_training_args(),
-        "speco.standalone_tq_producer.on_eror=skip",
+        "speco.standalone_producer.on_eror=skip",
     ]
     config = resolve_pipeline_config(args, environ={})
 
@@ -923,7 +947,7 @@ def test_validate_hidden_states_store_fails_fast_when_unreachable() -> None:
 def test_ray_pipeline_validates_mooncake_master_before_spawning(
     monkeypatch, environ
 ) -> None:
-    import verl_speco.standalone_tq_training_launcher as launcher
+    import verl_speco.standalone_training_launcher as launcher
     from verl_speco import standalone_ray_runtime as ray_runtime
 
     def _connect(address, timeout):
@@ -979,3 +1003,24 @@ def test_pipeline_commands_select_mooncake_hidden_states_store() -> None:
     )
 
 
+
+
+def test_aliases_preserve_order_values_and_hydra_operators():
+    overrides = [
+        "speco.standalone_tq_producer.shuffle=false",
+        "++speco.standalone_producer.shuffle=true",
+        "actor_rollout_ref.rollout.drafter.training.consumer.consumer_prefetch_batches=12",
+        "actor_rollout_ref.rollout.drafter.training.transfer_queue.consumer_prefetch_batches=4",
+        "~speco.standalone_tq_producer.input_path",
+        "trainer.experiment_name=speco.standalone_producer.test=a",
+    ]
+    expected = [
+        "speco.standalone_producer.shuffle=false",
+        "++speco.standalone_producer.shuffle=true",
+        "actor_rollout_ref.rollout.drafter.training.transfer_queue.consumer_prefetch_batches=12",
+        "actor_rollout_ref.rollout.drafter.training.transfer_queue.consumer_prefetch_batches=4",
+        "~speco.standalone_producer.input_path",
+        "trainer.experiment_name=speco.standalone_producer.test=a",
+    ]
+    assert normalize_standalone_overrides(overrides) == expected
+    assert normalize_standalone_overrides(expected) == expected

@@ -413,8 +413,8 @@ actor_rollout_ref.rollout.drafter.speculative_algorithm=EAGLE3
 verl-SpeCo also supports standalone DSpark draft-model training from a finite
 verl-style prompt Parquet or prompt/response JSONL/Parquet file. For prompt-only
 rows, a producer asks the target vLLM service to generate the response while
-extracting prompt/output hidden states. It transfers each global batch through
-TransferQueue, and a consumer trains the drafter independently of PPO.
+extracting prompt/output hidden states. By default, a Ray scheduler assigns
+hidden-state references to consumers, which train the drafter independently of PPO.
 
 Quickstart:
 
@@ -428,10 +428,28 @@ default: the scheduler assigns hidden-state references to Consumers. Set
 `speco.draft_training.data_transport=tq` to transfer complete feature tensors
 through TransferQueue while keeping the same Ray Producer/Consumer runtime.
 
+The public launcher is `python -m verl_speco.standalone_training_launcher`.
+Use `speco.standalone_producer.*` for Producer overrides and
+`actor_rollout_ref.rollout.drafter.training.consumer.*` for Consumer settings
+such as `consumer_prefetch_batches` and `consumer_batch_workers`. The launcher
+maps Consumer names to the existing runtime configuration. The former
+`speco.standalone_tq_producer.*` and `training.transfer_queue.*` CLI spellings
+remain supported by the launcher. Overrides are applied
+in command-line order, including when the two spellings are mixed.
+
 The standalone `tq` path does not support Mooncake's Ascend transport for the
 vLLM hidden-state handoff. The CPU-only Ray Producer reads and deletes the
 temporary Mooncake samples, and Ascend transport requires a visible NPU in that
 process. Use the file handoff or Mooncake TCP with `tq`.
+
+For online inputs, set `speco.standalone_producer.on_truncated_supervision=truncate`
+to right-truncate tokenized samples to `max_sequence_length` before hidden-state
+extraction and retain partial responses with sufficient supervision. The existing
+`keep` (default) and `drop` policies retain their behavior. Samples are checked
+against `min_supervised_tokens` and the algorithm's minimum feature rows after
+window selection. Zero-supervision samples are skipped. Prompt-only inputs with
+insufficient generation capacity are skipped before requesting vLLM; generated
+responses are checked again after reserving the final next-token label.
 
 Offline training from complete `torch_shard` or `vllm_safetensors` feature stores
 remains available through `verl_speco.draft_train_launcher`. Token-only stores
@@ -441,7 +459,7 @@ training modes. The subprocess Producer/Consumer runtime has been removed.
 
 Set the same model, dataset, drafter, checkpoint, GPU, and optimization values
 used by ordinary standalone training near the top of the script. Transport
-identity, Ray/TQ connection settings, and the Producer/Consumer lifecycle are
+identity, Ray connection settings, and the Producer/Consumer lifecycle are
 derived and managed internally. The target hidden-state vLLM service uses the
 local port 8000 convention.
 
@@ -822,7 +840,7 @@ output path. Hidden extraction and training checkpoints are unaffected.
 Use the **directory**, not the manifest file, as `data.train_files`:
 
 ```bash
-python -m verl_speco.standalone_tq_training_launcher \
+python -m verl_speco.standalone_training_launcher \
   speco.draft_training.data_source=saved_hidden \
   speco.draft_training.data_transport=ray_reference \
   speco.draft_training.num_gpus_per_node=2 \

@@ -317,7 +317,7 @@ def _read_on_missing_response(producer_cfg: Any) -> str:
     value = str(producer_cfg.get("on_missing_response", "skip") or "skip").lower()
     if value not in {"skip", "generate"}:
         raise ValueError(
-            "standalone_tq_producer.on_missing_response must be 'skip' or "
+            "standalone_producer.on_missing_response must be 'skip' or "
             f"'generate', got {value!r}"
         )
     return value
@@ -363,7 +363,7 @@ def validate_producer_config(config: Any) -> str:
     )
     missing = [name for name in required if not producer_cfg.get(name)]
     if missing:
-        raise ValueError(f"standalone_tq_producer missing required fields: {missing}")
+        raise ValueError(f"standalone_producer missing required fields: {missing}")
     if bool(producer_cfg.get("shuffle", False)):
         input_path = str(producer_cfg.get("input_path") or "")
         if input_path.lower().endswith((".parquet", ".pq")):
@@ -372,15 +372,13 @@ def validate_producer_config(config: Any) -> str:
             # dataset before the first request. Fail at startup instead of
             # taking that path silently.
             raise ValueError(
-                "standalone_tq_producer.shuffle=true requires a line-seekable "
+                "standalone_producer.shuffle=true requires a line-seekable "
                 f"JSONL input, got Parquet {input_path!r}; convert the input "
                 "to JSONL or set shuffle=false"
             )
     endpoints = producer_cfg.get("vllm_endpoints")
     if not isinstance(endpoints, list) or not endpoints or not all(endpoints):
-        raise ValueError(
-            "standalone_tq_producer.vllm_endpoints must be a non-empty list"
-        )
+        raise ValueError("standalone_producer.vllm_endpoints must be a non-empty list")
     algorithm = str(training_cfg.get("speculative_algorithm", "") or "").strip()
     if not algorithm:
         raise ValueError("drafter.speculative_algorithm must not be empty")
@@ -425,14 +423,14 @@ def validate_producer_config(config: Any) -> str:
     )
     invalid = [name for name in positive_fields if int(producer_cfg.get(name, 0)) <= 0]
     if invalid:
-        raise ValueError(f"standalone_tq_producer fields must be positive: {invalid}")
+        raise ValueError(f"standalone_producer fields must be positive: {invalid}")
     if int(producer_cfg.get("publish_workers", 4)) <= 0:
-        raise ValueError("standalone_tq_producer.publish_workers must be positive")
+        raise ValueError("standalone_producer.publish_workers must be positive")
     if int(producer_cfg.get("publish_max_attempts", 3)) <= 0:
-        raise ValueError("standalone_tq_producer.publish_max_attempts must be positive")
+        raise ValueError("standalone_producer.publish_max_attempts must be positive")
     if float(producer_cfg.get("publish_retry_backoff_seconds", 0.5)) < 0:
         raise ValueError(
-            "standalone_tq_producer.publish_retry_backoff_seconds must be non-negative"
+            "standalone_producer.publish_retry_backoff_seconds must be non-negative"
         )
     if int(producer_cfg.get("vllm_success_log_interval", 100)) < 0:
         raise ValueError("vllm_success_log_interval must be non-negative")
@@ -553,6 +551,16 @@ def _saved_hidden_training_request(request, producer_cfg, training_cfg):
         vllm_prompt_token_ids=request["vllm_prompt_token_ids"],
     )
     positions = prepared.feature_positions.tolist()
+    if producer_cfg.get("on_truncated_supervision", "keep") == "truncate":
+        minimum = max(
+            int(producer_cfg.get("min_supervised_tokens", 1) or 0),
+            _minimum_response_feature_rows(training_cfg),
+            1,
+        )
+        if sum(mask[position] > 0 for position in positions) < minimum:
+            raise SampleFilteredError(
+                "Saved hidden window has insufficient original supervised tokens"
+            )
     # Keep saved masks and original positions; select only the feature window.
     return {
         **request,
@@ -2187,7 +2195,7 @@ def _config_sections(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     plain = _plain_config(config)
     try:
-        producer_cfg = plain["speco"]["standalone_tq_producer"]
+        producer_cfg = plain["speco"]["standalone_producer"]
         drafter = plain["actor_rollout_ref"]["rollout"]["drafter"]
         training_cfg = drafter["training"]
         tq_cfg = training_cfg["transfer_queue"]
@@ -2234,7 +2242,7 @@ def _parse_dtype(value: Any) -> torch.dtype:
     aliases = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}
     dtype = getattr(torch, aliases.get(name, name), None)
     if not isinstance(dtype, torch.dtype):
-        raise ValueError(f"Unsupported standalone_tq_producer.hidden_dtype={value!r}")
+        raise ValueError(f"Unsupported standalone_producer.hidden_dtype={value!r}")
     return dtype
 
 

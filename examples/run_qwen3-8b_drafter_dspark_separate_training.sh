@@ -21,7 +21,7 @@ cd "${repo_root}"
 
 # Standalone DSpark draft-model training using an already-running hidden-state
 # vLLM. Start tools/run_qwen3-8b_drafter_hidden_state_vllm.sh in another terminal
-# first. This process owns Ray/TQ, Producer and Consumer, but it must not own
+# first. This process owns Ray, Producer and Consumer, but it must not own
 # the target vLLM so inference and training can use different accelerators.
 
 project_name=${PROJECT_NAME:-verl_dspark_drafter}
@@ -140,7 +140,7 @@ if [[ "${DATA_SOURCE}" == "online" ]]; then
     fi
 fi
 
-PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_tq_training_launcher \
+PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_training_launcher \
     speco.draft_training.runtime_backend=ray \
     speco.draft_training.num_gpus_per_node=${draft_train_gpus_per_node} \
     speco.draft_training.nnodes=1 \
@@ -166,8 +166,8 @@ PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_tq_training_launcher
     actor_rollout_ref.rollout.drafter.training.save_final_checkpoint=${SAVE_FINAL_CHECKPOINT} \
     actor_rollout_ref.rollout.drafter.training.batch_size_per_gpu=${BATCH_SIZE_PER_GPU} \
     actor_rollout_ref.rollout.drafter.training.packing.enable=true \
-    actor_rollout_ref.rollout.drafter.training.transfer_queue.consumer_batch_workers=12 \
-    actor_rollout_ref.rollout.drafter.training.transfer_queue.consumer_prefetch_batches=12 \
+    actor_rollout_ref.rollout.drafter.training.consumer.consumer_batch_workers=12 \
+    actor_rollout_ref.rollout.drafter.training.consumer.consumer_prefetch_batches=12 \
     'actor_rollout_ref.rollout.drafter.training.adamw_betas=[0.9,0.999]' \
     actor_rollout_ref.rollout.drafter.training.lr=${LEARNING_RATE} \
     actor_rollout_ref.rollout.drafter.training.lr_warmup_steps=${LR_WARMUP_STEPS} \
@@ -183,7 +183,7 @@ PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_tq_training_launcher
     actor_rollout_ref.rollout.drafter.training.dspark_loss_decay_gamma=${DSPARK_LOSS_DECAY_GAMMA} \
     actor_rollout_ref.rollout.drafter.training.dspark_num_target_layers=${DSPARK_NUM_TARGET_LAYERS} \
     actor_rollout_ref.rollout.drafter.training.dspark_num_hidden_layers=${DSPARK_NUM_HIDDEN_LAYERS} \
-    speco.standalone_tq_producer.vllm_aux_hidden_state_layer_ids=${VLLM_AUX_HIDDEN_STATE_LAYER_IDS} \
+    speco.standalone_producer.vllm_aux_hidden_state_layer_ids=${VLLM_AUX_HIDDEN_STATE_LAYER_IDS} \
     actor_rollout_ref.rollout.drafter.training.dspark_markov_rank=${DSPARK_MARKOV_RANK} \
     actor_rollout_ref.rollout.drafter.training.dspark_markov_head_type=${DSPARK_MARKOV_HEAD_TYPE} \
     actor_rollout_ref.rollout.drafter.training.dspark_ce_loss_alpha=${DSPARK_CE_LOSS_ALPHA} \
@@ -197,22 +197,22 @@ PYTHONUNBUFFERED=1 "${PYTHON_BIN}" -m verl_speco.standalone_tq_training_launcher
     actor_rollout_ref.rollout.drafter.training.dspark_debug_log=${DSPARK_DEBUG_LOG} \
     actor_rollout_ref.rollout.drafter.training.dspark_debug_log_first_n=${DSPARK_DEBUG_LOG_FIRST_N} \
     actor_rollout_ref.rollout.drafter.training.dspark_debug_log_interval=${DSPARK_DEBUG_LOG_INTERVAL} \
-    speco.standalone_tq_producer.request_timeout=${VLLM_REQUEST_TIMEOUT} \
-    speco.standalone_tq_producer.max_inflight_requests=${VLLM_MAX_INFLIGHT_REQUESTS} \
-    speco.standalone_tq_producer.per_endpoint_concurrency=${VLLM_PER_ENDPOINT_CONCURRENCY} \
-    speco.standalone_tq_producer.vllm_success_log_interval=${VLLM_SUCCESS_LOG_INTERVAL} \
-    speco.standalone_tq_producer.input_queue_size=${PRODUCER_INPUT_QUEUE_SIZE} \
-    speco.standalone_tq_producer.publish_queue_size=${PRODUCER_PUBLISH_QUEUE_SIZE} \
-    speco.standalone_tq_producer.publish_workers=${PRODUCER_PUBLISH_WORKERS} \
-    speco.standalone_tq_producer.publish_max_attempts=${PRODUCER_PUBLISH_MAX_ATTEMPTS} \
-    speco.standalone_tq_producer.publish_retry_backoff_seconds=${PRODUCER_PUBLISH_RETRY_BACKOFF_SECONDS} \
-    speco.standalone_tq_producer.max_pending_samples=${PRODUCER_MAX_PENDING_SAMPLES} \
-    speco.standalone_tq_producer.pending_poll_interval_seconds=${PRODUCER_PENDING_POLL_INTERVAL} \
-    speco.standalone_tq_producer.max_sequence_length=${PRODUCER_MAX_SEQUENCE_LENGTH} \
-    speco.standalone_tq_producer.max_feature_length=${PRODUCER_MAX_FEATURE_LENGTH} \
-    speco.standalone_tq_producer.generation_max_tokens=${PRODUCER_GENERATION_MAX_TOKENS} \
-    speco.standalone_tq_producer.shuffle=${PRODUCER_SHUFFLE} \
-    speco.standalone_tq_producer.shuffle_seed=${PRODUCER_SHUFFLE_SEED} \
+    speco.standalone_producer.request_timeout=${VLLM_REQUEST_TIMEOUT} \
+    speco.standalone_producer.max_inflight_requests=${VLLM_MAX_INFLIGHT_REQUESTS} \
+    speco.standalone_producer.per_endpoint_concurrency=${VLLM_PER_ENDPOINT_CONCURRENCY} \
+    speco.standalone_producer.vllm_success_log_interval=${VLLM_SUCCESS_LOG_INTERVAL} \
+    speco.standalone_producer.input_queue_size=${PRODUCER_INPUT_QUEUE_SIZE} \
+    speco.standalone_producer.publish_queue_size=${PRODUCER_PUBLISH_QUEUE_SIZE} \
+    speco.standalone_producer.publish_workers=${PRODUCER_PUBLISH_WORKERS} \
+    speco.standalone_producer.publish_max_attempts=${PRODUCER_PUBLISH_MAX_ATTEMPTS} \
+    speco.standalone_producer.publish_retry_backoff_seconds=${PRODUCER_PUBLISH_RETRY_BACKOFF_SECONDS} \
+    speco.standalone_producer.max_pending_samples=${PRODUCER_MAX_PENDING_SAMPLES} \
+    speco.standalone_producer.pending_poll_interval_seconds=${PRODUCER_PENDING_POLL_INTERVAL} \
+    speco.standalone_producer.max_sequence_length=${PRODUCER_MAX_SEQUENCE_LENGTH} \
+    speco.standalone_producer.max_feature_length=${PRODUCER_MAX_FEATURE_LENGTH} \
+    speco.standalone_producer.generation_max_tokens=${PRODUCER_GENERATION_MAX_TOKENS} \
+    speco.standalone_producer.shuffle=${PRODUCER_SHUFFLE} \
+    speco.standalone_producer.shuffle_seed=${PRODUCER_SHUFFLE_SEED} \
     trainer.project_name=${project_name} \
     trainer.logger="${TRAIN_LOGGERS}" \
     trainer.experiment_name=${exp_name} \

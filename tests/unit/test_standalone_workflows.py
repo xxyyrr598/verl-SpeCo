@@ -8,7 +8,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from verl_speco.standalone_tq_training_launcher import (
+from verl_speco.standalone_training_launcher import (
     build_pipeline_commands,
     resolve_pipeline_config,
 )

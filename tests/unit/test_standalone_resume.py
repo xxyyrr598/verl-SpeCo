@@ -64,7 +64,7 @@ def test_ray_reference_checkpoint_preserves_upstream_shuffle_resume_settings(tmp
 
     import torch
 
-    from verl_speco.standalone_tq_producer import _assert_resume_shuffle_alignment
+    from verl_speco.standalone_producer import _assert_resume_shuffle_alignment
 
     source = Path(__file__).resolve().parents[2] / "verl_speco/trainer/draft_training_loop.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
@@ -73,7 +73,7 @@ def test_ray_reference_checkpoint_preserves_upstream_shuffle_resume_settings(tmp
     namespace = {"Any": Any, "torch": torch, "save_standalone_resume": save_standalone_resume}
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(source), "exec"), namespace)
     settings = namespace["_standalone_producer_shuffle"]({
-        "speco": {"standalone_tq_producer": {"shuffle": True, "shuffle_seed": 73}},
+        "speco": {"standalone_producer": {"shuffle": True, "shuffle_seed": 73}},
     })
     loop = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)
                 and node.name == "_run_standalone_draft_training_async")

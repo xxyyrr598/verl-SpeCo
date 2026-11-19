@@ -20,8 +20,8 @@ from verl_speco.producer.hidden_states_store import (
     RawHiddenSample,
     load_raw_hidden_manifest,
 )
-from verl_speco.standalone_tq_producer import run_producer
-from verl_speco.standalone_tq_training_launcher import (
+from verl_speco.standalone_producer import run_producer
+from verl_speco.standalone_training_launcher import (
     _saved_hidden_tokenizer_fingerprint,
     _stable_path_identity,
     build_pipeline_commands,
@@ -55,7 +55,7 @@ def dataset(tmp_path):
         "tokenizer_fingerprint": _saved_hidden_tokenizer_fingerprint(str(target)),
         "use_logits": False,
         "target_config_fingerprint": None,
-        "source": "standalone_tq_producer",
+        "source": "standalone_producer",
         "require_full_alignment": True,
         "target_num_hidden_layers": 3,
     }
@@ -135,7 +135,7 @@ def test_directory_launch_uses_manifest_layers_and_no_online_services(
     dataset, monkeypatch
 ):
     from verl_speco import standalone_ray_runtime as runtime
-    from verl_speco import standalone_tq_training_launcher as launcher
+    from verl_speco import standalone_training_launcher as launcher
 
     reads = []
     load_manifest = launcher.load_raw_hidden_manifest
@@ -180,7 +180,7 @@ def test_directory_launch_uses_manifest_layers_and_no_online_services(
 def test_producer_repeats_unique_occurrences_and_consumer_preserves_files(
     dataset, monkeypatch
 ):
-    import verl_speco.standalone_tq_producer as producer_module
+    import verl_speco.standalone_producer as producer_module
     from verl_speco.producer import hidden_states_store
 
     _commands, producer, consumer = pipeline(dataset)
@@ -263,7 +263,7 @@ def test_pause_resume_and_actor_completion_reuse_existing_callbacks(dataset):
 
 def test_shuffled_resume_replays_only_unconsumed_occurrences(dataset, tmp_path):
     _, config, _ = pipeline(dataset)
-    producer = config.speco.standalone_tq_producer
+    producer = config.speco.standalone_producer
     producer.update(shuffle=True, shuffle_seed=7, max_samples=8)
     _, first = asyncio.run(collect(config))
     expected = [
@@ -296,7 +296,7 @@ def test_directory_resume_detects_manifest_mutation(dataset, tmp_path):
     _, config, _ = pipeline(dataset)
     checkpoint = tmp_path / "checkpoint"
     save_standalone_resume(checkpoint, [0], optimizer_step=1, input_path=dataset[0])
-    config.speco.standalone_tq_producer.resume_checkpoint_path = str(checkpoint)
+    config.speco.standalone_producer.resume_checkpoint_path = str(checkpoint)
     before = build_input_fingerprint(dataset[0])
     manifest = dataset[0] / "manifest.jsonl"
     text = manifest.read_text(encoding="utf-8")
@@ -314,7 +314,7 @@ def test_directory_resume_detects_manifest_mutation(dataset, tmp_path):
         ["actor_rollout_ref.rollout.drafter.training.gradient_accumulation_steps=2"],
         ["actor_rollout_ref.rollout.drafter.training.dspark_l1_loss_alpha=0.0"],
         ["actor_rollout_ref.rollout.drafter.training.dspark_num_target_layers=2"],
-        ["speco.standalone_tq_producer.vllm_aux_hidden_state_layer_ids=[2]"],
+        ["speco.standalone_producer.vllm_aux_hidden_state_layer_ids=[2]"],
     ],
 )
 def test_incompatible_training_contract_fails_before_publication(dataset, extra):
@@ -395,6 +395,32 @@ def test_training_block_size_cannot_silently_drop_saved_supervision(dataset):
     )
     with pytest.raises(ValueError, match="sufficient"):
         asyncio.run(collect(producer))
+
+
+def test_saved_truncation_counts_original_noncontiguous_mask():
+    from verl_speco.standalone_producer import _saved_hidden_training_request
+    from verl_speco.producer.input_reader import SampleFilteredError
+
+    request = {
+        "input_ids": list(range(12)),
+        "loss_mask": [0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1],
+        "position_ids": list(range(12)),
+        "vllm_prompt_token_ids": list(range(12)),
+        "source_metadata": {},
+    }
+    producer = {
+        "on_truncated_supervision": "truncate",
+        "max_sequence_length": 8,
+        "max_feature_length": 0,
+        "min_supervised_tokens": 3,
+    }
+    training = {"speculative_algorithm": "DSPARK", "preserve_prompt_hidden_states": True}
+    with pytest.raises(SampleFilteredError, match="original supervised"):
+        _saved_hidden_training_request(request, producer, training)
+    producer["min_supervised_tokens"] = 2
+    result = _saved_hidden_training_request(request, producer, training)
+    assert result["feature_positions"] == list(range(8))
+    assert result["loss_mask"] == request["loss_mask"]
 
 
 @pytest.mark.parametrize("raw_capture", [False, True])
@@ -494,7 +520,7 @@ def test_saved_checkpoint_pins_hub_snapshot_in_runtime_configs(dataset, monkeypa
     parser = OverridesParser.create()
     for overrides, key in (
         (commands.consumer_overrides, "actor_rollout_ref.model.path"),
-        (commands.producer_overrides, "speco.standalone_tq_producer.target_model_id"),
+        (commands.producer_overrides, "speco.standalone_producer.target_model_id"),
     ):
         matching = [item for item in overrides if item.startswith(f"{key}=")]
         assert parser.parse_overrides(matching)[-1].value() == target.as_posix()
@@ -532,7 +558,7 @@ def test_checkpoint_fingerprint_includes_every_indexed_shard(tmp_path):
         ),
         (
             "DSPARK",
-            ["speco.standalone_tq_producer.hidden_dtype=float32"],
+            ["speco.standalone_producer.hidden_dtype=float32"],
             "dflash_aux_plus_last",
             "torch.float32",
         ),
@@ -615,7 +641,7 @@ def test_capture_window_is_selected_by_training_and_leaves_full_file_untouched(d
         "".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8"
     )
     _, producer, _ = pipeline(
-        dataset, ["speco.standalone_tq_producer.max_feature_length=2"]
+        dataset, ["speco.standalone_producer.max_feature_length=2"]
     )
     _, references = asyncio.run(collect(producer))
     assert references[0]["tag"]["request"]["feature_positions"] == [0, 1, 2]

@@ -1090,9 +1090,9 @@ def _standalone_producer_shuffle(config: Any) -> dict[str, Any] | None:
     speco_cfg = getattr(config, "speco", None)
     if speco_cfg is None and isinstance(config, dict):
         speco_cfg = config.get("speco")
-    producer_cfg = getattr(speco_cfg, "standalone_tq_producer", None)
+    producer_cfg = getattr(speco_cfg, "standalone_producer", None)
     if producer_cfg is None and isinstance(speco_cfg, dict):
-        producer_cfg = speco_cfg.get("standalone_tq_producer")
+        producer_cfg = speco_cfg.get("standalone_producer")
     if producer_cfg is None:
         return None
     try:

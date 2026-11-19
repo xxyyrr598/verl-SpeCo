@@ -136,14 +136,14 @@ def test_standalone_tq_training_example_uses_unified_launcher() -> None:
         ROOT / "examples" / "run_qwen3-8b_drafter_dspark_separate_training.sh"
     ).read_text(encoding="utf-8")
 
-    assert "-m verl_speco.standalone_tq_training_launcher" in source
+    assert "-m verl_speco.standalone_training_launcher" in source
     assert "data.train_files=${TRAIN_FILE}" in source
     assert "actor_rollout_ref.rollout.drafter.enable=True" in source
     assert "actor_rollout_ref.rollout.drafter.enable_drafter_training=True" in source
     assert "actor_rollout_ref.rollout.drafter.model_path=${DRAFTER_PATH}" in source
     assert "actor_rollout_ref.rollout.drafter.speculative_algorithm=DSPARK" in source
-    assert "speco.standalone_tq_producer.max_inflight_requests=" in source
-    assert "speco.standalone_tq_producer.per_endpoint_concurrency=" in source
+    assert "speco.standalone_producer.max_inflight_requests=" in source
+    assert "speco.standalone_producer.per_endpoint_concurrency=" in source
     assert "actor_rollout_ref.rollout.drafter.training.dspark_ce_loss_alpha=" in source
     assert "actor_rollout_ref.rollout.drafter.training.dspark_l1_loss_alpha=" in source
     assert (
@@ -157,7 +157,7 @@ def test_standalone_tq_training_example_uses_unified_launcher() -> None:
     assert "DSPARK_MAX_WINDOW=${DSPARK_MAX_WINDOW:-0}" in source
     assert "DSPARK_MAX_WINDOW=${DSPARK_MAX_WINDOW:-512}" not in source
     assert "training.dspark_max_window=${DSPARK_MAX_WINDOW}" in source
-    assert "speco.standalone_tq_producer.vllm_aux_hidden_state_layer_ids=" in source
+    assert "speco.standalone_producer.vllm_aux_hidden_state_layer_ids=" in source
     assert "training.dspark_target_layer_ids=" not in source
 
 

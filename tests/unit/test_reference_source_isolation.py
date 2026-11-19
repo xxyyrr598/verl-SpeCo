@@ -40,7 +40,7 @@ from verl_speco.trainer.feature_store import build_feature_store_from_config
 from verl_speco.trainer.reference_sample_source import ReferenceFeatureDataLoader
 from verl_speco.trainer.reference_batch_prefetch import ReferenceBatchPrefetchIterator
 from verl_speco.trainer.standalone_prefetch import StandalonePrefetchIterator
-from verl_speco.standalone_tq_producer import run_producer
+from verl_speco.standalone_producer import run_producer
 
 store = build_feature_store_from_config(
     {"type": "ray_reference"}, read_only=True,

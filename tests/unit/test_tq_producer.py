@@ -27,7 +27,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from verl_speco.producer.vllm_feature_client import RawVllmFeature
-from verl_speco.standalone_tq_producer import (
+from verl_speco.standalone_producer import (
     _drain_pending_samples,
     run_producer,
     validate_producer_config,
@@ -54,7 +54,7 @@ def target_final_norm(monkeypatch):
     with torch.no_grad():
         norm.weight.copy_(torch.tensor([2.0, 3.0]))
     monkeypatch.setattr(
-        "verl_speco.standalone_tq_producer.load_vllm_final_norm",
+        "verl_speco.standalone_producer.load_vllm_final_norm",
         lambda *args, **kwargs: norm,
     )
     return norm
@@ -63,7 +63,7 @@ def target_final_norm(monkeypatch):
 def _config(input_path: Path) -> dict[str, Any]:
     return {
         "speco": {
-            "standalone_tq_producer": {
+            "standalone_producer": {
                 "input_path": str(input_path),
                 "tokenizer_path": "/target",
                 "tokenizer_fingerprint": "sha256:tokenizer",
@@ -120,7 +120,7 @@ def test_producer_rejects_response_budget_without_training_anchor(algorithm, min
     drafter = config["actor_rollout_ref"]["rollout"]["drafter"]
     drafter["speculative_algorithm"] = algorithm
     drafter["training"]["dflash_block_size"] = 4
-    producer = config["speco"]["standalone_tq_producer"]
+    producer = config["speco"]["standalone_producer"]
     producer["max_feature_length"] = minimum - 1
     with pytest.raises(ValueError, match=f"at least {minimum}"):
         validate_producer_config(config)
@@ -404,13 +404,13 @@ def test_run_producer_publishes_samples_then_eos(
 @pytest.mark.parametrize("batch_size", [None, 2, 3])
 @pytest.mark.parametrize("backend", ["file", "mooncake"])
 def test_reference_producer_never_reads_or_normalizes_hidden(tmp_path, monkeypatch, batch_size, backend):
-    import verl_speco.standalone_tq_producer as producer
+    import verl_speco.standalone_producer as producer
     from verl_speco.producer.vllm_feature_client import VllmResponse
 
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["hidden_states_store"] = {"backend": backend}
+    config["speco"]["standalone_producer"]["hidden_states_store"] = {"backend": backend}
     config["actor_rollout_ref"]["rollout"]["drafter"]["training"]["transfer_queue"]["expected_feature"] = {
         "payload_kind": "vllm_reference"
     }
@@ -496,7 +496,7 @@ def test_run_producer_publishes_samples_concurrently(tmp_path: Path) -> None:
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["publish_workers"] = 2
+    config["speco"]["standalone_producer"]["publish_workers"] = 2
     transport = _ConcurrentTransport()
 
     stats = asyncio.run(
@@ -515,7 +515,7 @@ def test_run_producer_publishes_samples_concurrently(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("ending", [False, True])
 def test_reference_batch_flushes_on_timeout_or_end(ending):
-    from verl_speco.standalone_tq_producer import _PUBLISH_DONE, _collect_reference_batch
+    from verl_speco.standalone_producer import _PUBLISH_DONE, _collect_reference_batch
 
     async def run():
         queue = asyncio.Queue()
@@ -530,13 +530,13 @@ def test_reference_batch_flushes_on_timeout_or_end(ending):
 def test_run_producer_logs_perf_window_at_info(
     tmp_path: Path, monkeypatch, caplog
 ) -> None:
-    import verl_speco.standalone_tq_producer as producer_module
+    import verl_speco.standalone_producer as producer_module
 
     monkeypatch.setattr(producer_module, "_PERF_WINDOW_SAMPLES", 2)
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
 
-    with caplog.at_level("INFO", logger="verl_speco.standalone_tq_producer"):
+    with caplog.at_level("INFO", logger="verl_speco.standalone_producer"):
         asyncio.run(
             run_producer(
                 _config(input_path),
@@ -558,7 +558,7 @@ def test_producer_emits_complete_and_final_partial_metric_windows(tmp_path, coun
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = count
+    config["speco"]["standalone_producer"]["max_samples"] = count
     windows = []
 
     async def on_metrics(total, metrics):
@@ -589,7 +589,7 @@ def test_producer_cancellation_flushes_partial_window(tmp_path):
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg.update(max_samples=100, publish_workers=1)
     windows = []
 
@@ -631,7 +631,7 @@ def test_run_producer_retries_transient_publish_failure(tmp_path: Path, caplog) 
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    producer = config["speco"]["standalone_tq_producer"]
+    producer = config["speco"]["standalone_producer"]
     producer["max_samples"] = 1
     producer["publish_workers"] = 1
     producer["publish_max_attempts"] = 3
@@ -639,7 +639,7 @@ def test_run_producer_retries_transient_publish_failure(tmp_path: Path, caplog) 
     transport = _TransientFailureTransport(failures=2)
     pool = _Pool(tmp_path)
 
-    with caplog.at_level("WARNING", logger="verl_speco.standalone_tq_producer"):
+    with caplog.at_level("WARNING", logger="verl_speco.standalone_producer"):
         stats = asyncio.run(
             run_producer(
                 config,
@@ -660,7 +660,7 @@ def test_direct_producer_derives_vllm_ids_from_target_ids(tmp_path: Path) -> Non
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    producer = config["speco"]["standalone_tq_producer"]
+    producer = config["speco"]["standalone_producer"]
     producer.pop("vllm_aux_hidden_state_layer_ids")
     producer["max_samples"] = 1
 
@@ -680,7 +680,7 @@ def test_direct_producer_derives_target_ids_from_vllm_ids(tmp_path: Path) -> Non
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    producer = config["speco"]["standalone_tq_producer"]
+    producer = config["speco"]["standalone_producer"]
     producer.pop("target_layer_ids")
     producer["max_samples"] = 1
     transport = _Transport()
@@ -713,7 +713,7 @@ def test_direct_producer_rejects_mismatched_layer_ids(tmp_path: Path) -> None:
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["vllm_aux_hidden_state_layer_ids"] = [3]
+    config["speco"]["standalone_producer"]["vllm_aux_hidden_state_layer_ids"] = [3]
 
     with pytest.raises(ValueError, match="algorithm convention"):
         validate_producer_config(config)
@@ -722,12 +722,12 @@ def test_direct_producer_rejects_mismatched_layer_ids(tmp_path: Path) -> None:
 def test_run_producer_does_not_republish_when_temporary_cleanup_fails(
     tmp_path: Path, monkeypatch, caplog
 ) -> None:
-    import verl_speco.standalone_tq_producer as producer_module
+    import verl_speco.standalone_producer as producer_module
 
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    producer = config["speco"]["standalone_tq_producer"]
+    producer = config["speco"]["standalone_producer"]
     producer["max_samples"] = 1
     producer["publish_workers"] = 1
     producer["publish_retry_backoff_seconds"] = 0
@@ -741,7 +741,7 @@ def test_run_producer_does_not_republish_when_temporary_cleanup_fails(
         raise PermissionError(raw.temporary_path)
 
     monkeypatch.setattr(producer_module, "delete_temporary_result", fail_cleanup)
-    with caplog.at_level("WARNING", logger="verl_speco.standalone_tq_producer"):
+    with caplog.at_level("WARNING", logger="verl_speco.standalone_producer"):
         stats = asyncio.run(
             run_producer(
                 config,
@@ -769,7 +769,7 @@ def test_aux_only_producer_does_not_load_or_apply_final_norm(
         raise AssertionError("aux-only features must not load a target final norm")
 
     monkeypatch.setattr(
-        "verl_speco.standalone_tq_producer.load_vllm_final_norm", unexpected_load
+        "verl_speco.standalone_producer.load_vllm_final_norm", unexpected_load
     )
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
@@ -810,7 +810,7 @@ def test_run_producer_restarts_input_until_max_samples(tmp_path: Path) -> None:
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 5
+    config["speco"]["standalone_producer"]["max_samples"] = 5
     transport = _Transport()
     pool = _Pool(tmp_path)
 
@@ -839,7 +839,7 @@ def test_run_producer_shuffle_permutes_per_epoch_deterministically(
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg["max_samples"] = 4  # two epochs over the two-record file
     producer_cfg["shuffle"] = True
     producer_cfg["shuffle_seed"] = 42
@@ -888,7 +888,7 @@ def test_run_producer_shuffle_resume_replays_epoch_order(tmp_path: Path) -> None
         producer_shuffle={"shuffle": True, "shuffle_seed": 42},
     )
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg["resume_checkpoint_path"] = str(checkpoint_path)
     producer_cfg["max_samples"] = 2
     producer_cfg["shuffle"] = True
@@ -944,7 +944,7 @@ def test_run_producer_shuffle_resume_with_filtered_rows_stays_aligned(
         encoding="utf-8",
     )
     base_config = _config(input_path)
-    producer_cfg = base_config["speco"]["standalone_tq_producer"]
+    producer_cfg = base_config["speco"]["standalone_producer"]
     producer_cfg["shuffle"] = True
     producer_cfg["shuffle_seed"] = 42
 
@@ -982,7 +982,7 @@ def test_run_producer_shuffle_resume_with_filtered_rows_stays_aligned(
         producer_shuffle={"shuffle": True, "shuffle_seed": 42},
     )
     resume_config = _config(input_path)
-    resume_cfg = resume_config["speco"]["standalone_tq_producer"]
+    resume_cfg = resume_config["speco"]["standalone_producer"]
     resume_cfg["shuffle"] = True
     resume_cfg["shuffle_seed"] = 42
     resume_cfg["resume_checkpoint_path"] = str(checkpoint_path)
@@ -1027,7 +1027,7 @@ def test_run_producer_shuffle_resume_rejects_changed_shuffle_config(
         producer_shuffle={"shuffle": True, "shuffle_seed": 42},
     )
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg["resume_checkpoint_path"] = str(checkpoint_path)
     producer_cfg["shuffle"] = True
     producer_cfg["shuffle_seed"] = 7
@@ -1064,7 +1064,7 @@ def test_run_producer_shuffle_rejects_resume_from_legacy_progress(
         input_path=input_path,
     )
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg["resume_checkpoint_path"] = str(checkpoint_path)
     producer_cfg["shuffle"] = True
     producer_cfg["shuffle_seed"] = 42
@@ -1095,7 +1095,7 @@ def test_run_producer_shuffle_allows_resume_from_empty_legacy_progress(
         input_path=input_path,
     )
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg["resume_checkpoint_path"] = str(checkpoint_path)
     producer_cfg["shuffle"] = True
     producer_cfg["shuffle_seed"] = 42
@@ -1119,7 +1119,7 @@ def test_validate_producer_config_rejects_parquet_shuffle(tmp_path: Path) -> Non
     input_path = tmp_path / "train.parquet"
     input_path.write_bytes(b"PAR1-fixture")
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["shuffle"] = True
+    config["speco"]["standalone_producer"]["shuffle"] = True
 
     with pytest.raises(ValueError, match="Parquet"):
         validate_producer_config(config)
@@ -1136,7 +1136,7 @@ def test_run_producer_skips_consumed_sequences_before_vllm(tmp_path: Path) -> No
         input_path=input_path,
     )
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg["resume_checkpoint_path"] = str(checkpoint_path)
     producer_cfg["max_samples"] = 2
     transport = _Transport()
@@ -1177,7 +1177,7 @@ def test_run_producer_resumes_after_a_fully_consumed_epoch(tmp_path: Path) -> No
         input_path=input_path,
     )
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg["resume_checkpoint_path"] = str(checkpoint_path)
     producer_cfg["max_samples"] = 2
     transport = _Transport()
@@ -1221,7 +1221,7 @@ def test_run_producer_generates_response_for_verl_chat_prompt(
     transport = _Transport()
     pool = _Pool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["on_missing_response"] = "generate"
+    config["speco"]["standalone_producer"]["on_missing_response"] = "generate"
     if preserve is not None:
         config["actor_rollout_ref"]["rollout"]["drafter"]["training"][
             "preserve_prompt_hidden_states"
@@ -1284,7 +1284,7 @@ def test_run_producer_rejects_invalid_on_missing_response(tmp_path: Path) -> Non
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["on_missing_response"] = "bogus"
+    config["speco"]["standalone_producer"]["on_missing_response"] = "bogus"
 
     with pytest.raises(ValueError, match="on_missing_response"):
         asyncio.run(
@@ -1308,13 +1308,13 @@ def test_run_producer_bounds_consecutive_generated_filters(tmp_path: Path) -> No
     transport = _Transport()
     pool = _Pool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["on_missing_response"] = "generate"
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
-    config["speco"]["standalone_tq_producer"]["max_inflight_requests"] = 1
+    config["speco"]["standalone_producer"]["on_missing_response"] = "generate"
+    config["speco"]["standalone_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_inflight_requests"] = 1
     # No generated completion can reach this many supervised tokens, so every
     # generated sample is filtered after generation and replaced.
-    config["speco"]["standalone_tq_producer"]["min_supervised_tokens"] = 99
-    config["speco"]["standalone_tq_producer"]["max_consecutive_feature_drops"] = 2
+    config["speco"]["standalone_producer"]["min_supervised_tokens"] = 99
+    config["speco"]["standalone_producer"]["max_consecutive_feature_drops"] = 2
 
     with pytest.raises(RuntimeError, match="max_consecutive_feature_drops=2"):
         asyncio.run(
@@ -1332,7 +1332,7 @@ def test_run_producer_bounds_consecutive_generated_filters(tmp_path: Path) -> No
 def test_run_producer_renders_off_the_event_loop(tmp_path: Path, monkeypatch) -> None:
     """The synchronous /render calls must not run on the event-loop thread."""
 
-    import verl_speco.standalone_tq_producer as producer_module
+    import verl_speco.standalone_producer as producer_module
 
     input_path = tmp_path / "chat.jsonl"
     input_path.write_text(
@@ -1364,7 +1364,7 @@ def test_run_producer_renders_off_the_event_loop(tmp_path: Path, monkeypatch) ->
     transport = _Transport()
     pool = _Pool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["render_boundary"] = {"enabled": True}
+    config["speco"]["standalone_producer"]["render_boundary"] = {"enabled": True}
     main_thread = threading.main_thread().ident
 
     stats = asyncio.run(
@@ -1386,20 +1386,20 @@ def test_run_producer_misaligned_drop_survives_cleanup_failure(
 ) -> None:
     """A store deletion failure on the drop path must not abort the producer."""
 
-    import verl_speco.standalone_tq_producer as producer_module
+    import verl_speco.standalone_producer as producer_module
 
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     transport = _Transport()
     pool = _OneMisalignedPool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_samples"] = 2
 
     def fail_cleanup(raw):
         raise RuntimeError("store delete failed")
 
     monkeypatch.setattr(producer_module, "delete_temporary_result", fail_cleanup)
-    with caplog.at_level("WARNING", logger="verl_speco.standalone_tq_producer"):
+    with caplog.at_level("WARNING", logger="verl_speco.standalone_producer"):
         stats = asyncio.run(
             run_producer(
                 config,
@@ -1425,7 +1425,7 @@ def test_run_producer_replaces_misaligned_sample_before_eos(
     transport = _Transport()
     pool = _OneMisalignedPool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_samples"] = 2
 
     stats = asyncio.run(
         run_producer(
@@ -1458,7 +1458,7 @@ def test_run_producer_replaces_sample_after_terminal_request_failure(
     transport = _Transport()
     pool = _OneFailingPrefillPool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_samples"] = 2
 
     stats = asyncio.run(
         run_producer(
@@ -1494,9 +1494,9 @@ def test_run_producer_bounds_consecutive_terminal_request_failures(
     transport = _Transport()
     pool = _AlwaysFailingPrefillPool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
-    config["speco"]["standalone_tq_producer"]["max_inflight_requests"] = 1
-    config["speco"]["standalone_tq_producer"]["max_consecutive_feature_drops"] = 2
+    config["speco"]["standalone_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_inflight_requests"] = 1
+    config["speco"]["standalone_producer"]["max_consecutive_feature_drops"] = 2
 
     with pytest.raises(RuntimeError, match="max_consecutive_feature_drops=2"):
         asyncio.run(
@@ -1521,9 +1521,9 @@ def test_run_producer_transient_request_failure_resets_breaker(
     transport = _Transport()
     pool = _OneFailingPrefillPool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
-    config["speco"]["standalone_tq_producer"]["max_inflight_requests"] = 1
-    config["speco"]["standalone_tq_producer"]["max_consecutive_feature_drops"] = 1
+    config["speco"]["standalone_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_inflight_requests"] = 1
+    config["speco"]["standalone_producer"]["max_consecutive_feature_drops"] = 1
 
     stats = asyncio.run(
         run_producer(
@@ -1550,7 +1550,7 @@ def test_run_producer_filters_over_length_sample_without_aborting(
     config = _config(input_path)
     # Any sample whose vLLM prefill would exceed this cap must be skipped
     # instead of aborting the producer.
-    config["speco"]["standalone_tq_producer"]["max_sequence_length"] = 2
+    config["speco"]["standalone_producer"]["max_sequence_length"] = 2
 
     stats = asyncio.run(
         run_producer(
@@ -1569,6 +1569,39 @@ def test_run_producer_filters_over_length_sample_without_aborting(
     assert "exceeding max_sequence_length=2" in caplog.text
 
 
+@pytest.mark.parametrize("limit,published", [(3, 0), (4, 2)])
+def test_right_truncation_filters_or_publishes_with_strict_error_policy(tmp_path, limit, published):
+    class LongResponseTokenizer(_Tokenizer):
+        def __call__(self, text, *, add_special_tokens):
+            result = super().__call__(text, add_special_tokens=add_special_tokens)
+            if not text.endswith(": "):
+                result["input_ids"].extend([20, 21])
+            return result
+
+    input_path = tmp_path / "input.jsonl"
+    _write_input(input_path)
+    config = _config(input_path)
+    config["speco"]["standalone_producer"].update(
+        on_truncated_supervision="truncate", max_sequence_length=limit,
+        max_feature_length=0, on_error="raise",
+    )
+    transport, pool = _Transport(), _Pool(tmp_path)
+    stats = asyncio.run(run_producer(
+        config, transport=transport, tokenizer=LongResponseTokenizer(), client_pool=pool,
+    ))
+    assert stats.published_count == published
+    assert stats.filtered_count == 2 - published
+    assert stats.failed_count == 0
+    assert pool.prefill_calls == published
+    assert pool.closed and transport.closed
+    sample_keys = [key for key, tag in transport.records.items() if tag.get("record_type") == "sample"]
+    assert len(sample_keys) == published
+    for key in sample_keys:
+        sample = decode_sample(key, transport.records[key], transport.payloads[key], {"run_id": "run-a"})
+        assert sample.input_ids.numel() <= limit
+        assert sample.input_ids.numel() == sample.hidden_states.shape[0] == sample.loss_mask.numel()
+
+
 @pytest.mark.parametrize("pool_factory", [_AlwaysMisalignedPool, _NanHiddenStatePool])
 def test_run_producer_bounds_consecutive_feature_drops(
     tmp_path: Path, pool_factory: type[_Pool]
@@ -1580,9 +1613,9 @@ def test_run_producer_bounds_consecutive_feature_drops(
     transport = _Transport()
     pool = pool_factory(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
-    config["speco"]["standalone_tq_producer"]["max_inflight_requests"] = 1
-    config["speco"]["standalone_tq_producer"]["max_consecutive_feature_drops"] = 2
+    config["speco"]["standalone_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_inflight_requests"] = 1
+    config["speco"]["standalone_producer"]["max_consecutive_feature_drops"] = 2
 
     with pytest.raises(RuntimeError, match="max_consecutive_feature_drops=2"):
         asyncio.run(
@@ -1603,9 +1636,9 @@ def test_run_producer_feature_drop_limit_zero_fails_on_first_drop(
     input_path = tmp_path / "input.jsonl"
     _write_input(input_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
-    config["speco"]["standalone_tq_producer"]["max_inflight_requests"] = 1
-    config["speco"]["standalone_tq_producer"]["max_consecutive_feature_drops"] = 0
+    config["speco"]["standalone_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_inflight_requests"] = 1
+    config["speco"]["standalone_producer"]["max_consecutive_feature_drops"] = 0
 
     with pytest.raises(RuntimeError, match="max_consecutive_feature_drops=0"):
         asyncio.run(
@@ -1628,9 +1661,9 @@ def test_run_producer_transient_feature_drop_resets_breaker(
     transport = _Transport()
     pool = _OneMisalignedPool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
-    config["speco"]["standalone_tq_producer"]["max_inflight_requests"] = 1
-    config["speco"]["standalone_tq_producer"]["max_consecutive_feature_drops"] = 1
+    config["speco"]["standalone_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_inflight_requests"] = 1
+    config["speco"]["standalone_producer"]["max_consecutive_feature_drops"] = 1
 
     stats = asyncio.run(
         run_producer(
@@ -1657,9 +1690,9 @@ def test_run_producer_logs_error_when_nothing_is_published(
     config = _config(input_path)
     # max_samples<=0 means one pass; a single worker avoids the fake pool's
     # per-sample-id temporary-file race.
-    config["speco"]["standalone_tq_producer"]["max_inflight_requests"] = 1
+    config["speco"]["standalone_producer"]["max_inflight_requests"] = 1
 
-    with caplog.at_level("ERROR", logger="verl_speco.standalone_tq_producer"):
+    with caplog.at_level("ERROR", logger="verl_speco.standalone_producer"):
         stats = asyncio.run(
             run_producer(
                 config,
@@ -1785,10 +1818,10 @@ def test_run_producer_errors_when_every_row_is_filtered(tmp_path: Path) -> None:
     transport = _Transport()
     pool = _Pool(tmp_path)
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["max_samples"] = 2
     # No feature window can reach this many supervised tokens, so every row is
     # filtered (SampleFilteredError) and no request is produced.
-    config["speco"]["standalone_tq_producer"]["min_supervised_tokens"] = 99
+    config["speco"]["standalone_producer"]["min_supervised_tokens"] = 99
 
     with pytest.raises(ValueError, match="filtered every newly considered sample"):
         asyncio.run(
@@ -1830,7 +1863,7 @@ def test_run_producer_preserves_explicit_zero_max_consecutive_errors(
         encoding="utf-8",
     )
     config = _config(input_path)
-    producer_cfg = config["speco"]["standalone_tq_producer"]
+    producer_cfg = config["speco"]["standalone_producer"]
     producer_cfg["on_error"] = "skip"
     producer_cfg["max_consecutive_errors"] = 0
     transport = _Transport()
@@ -1907,7 +1940,7 @@ def test_drain_pending_samples_disabled_with_zero_timeout() -> None:
 
 @pytest.mark.parametrize("accept_first", [False, True])
 def test_cancel_reference_producer_cleans_only_unsubmitted_results(tmp_path, monkeypatch, accept_first):
-    import verl_speco.standalone_tq_producer as producer
+    import verl_speco.standalone_producer as producer
     from verl_speco.producer.vllm_feature_client import VllmResponse
     from types import SimpleNamespace
 
@@ -1915,8 +1948,8 @@ def test_cancel_reference_producer_cleans_only_unsubmitted_results(tmp_path, mon
     _write_input(input_path)
     input_path.write_text(input_path.read_text(encoding="utf-8") * 10, encoding="utf-8")
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["hidden_states_store"] = {"backend": "mooncake"}
-    config["speco"]["standalone_tq_producer"]["publish_queue_size"] = 1
+    config["speco"]["standalone_producer"]["hidden_states_store"] = {"backend": "mooncake"}
+    config["speco"]["standalone_producer"]["publish_queue_size"] = 1
     config["actor_rollout_ref"]["rollout"]["drafter"]["training"]["transfer_queue"]["expected_feature"] = {"payload_kind": "vllm_reference"}
     monkeypatch.setattr(producer, "_load_target_depth", lambda *a: 32)
     generated, submitted, deleted = set(), set(), []
@@ -1958,7 +1991,7 @@ def test_cancel_reference_producer_cleans_only_unsubmitted_results(tmp_path, mon
 
 
 def test_eagle3_filters_short_reference_and_fills_batch_budget(tmp_path, monkeypatch):
-    import verl_speco.standalone_tq_producer as producer
+    import verl_speco.standalone_producer as producer
     from verl_speco.producer.vllm_feature_client import VllmResponse
     from verl_speco.trainer.tq_feature_store import ReadyEntry, ReferenceFeatureStore
     from safetensors.torch import save_file
@@ -1968,8 +2001,8 @@ def test_eagle3_filters_short_reference_and_fills_batch_budget(tmp_path, monkeyp
                for name in ("short", "valid-a", "valid-b")]
     input_path.write_text("".join(json.dumps(row) + "\n" for row in records), encoding="utf-8")
     config = _config(input_path)
-    config["speco"]["standalone_tq_producer"]["max_samples"] = 2
-    config["speco"]["standalone_tq_producer"]["vllm_aux_hidden_state_layer_ids"] = [2, 8]
+    config["speco"]["standalone_producer"]["max_samples"] = 2
+    config["speco"]["standalone_producer"]["vllm_aux_hidden_state_layer_ids"] = [2, 8]
     drafter = config["actor_rollout_ref"]["rollout"]["drafter"]
     drafter["speculative_algorithm"] = "EAGLE3"
     drafter["training"]["transfer_queue"]["expected_feature"] = {"payload_kind": "vllm_reference"}

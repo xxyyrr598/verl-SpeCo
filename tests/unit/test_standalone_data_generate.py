@@ -393,7 +393,7 @@ def test_hidden_rejects_the_same_short_supervision_as_live_producer(
         SampleFilteredError,
         tokenize_record,
     )
-    from verl_speco.standalone_tq_producer import standalone_token_config
+    from verl_speco.standalone_producer import standalone_token_config
 
     class Tokenizer:
         def __call__(self, text, **kwargs):
